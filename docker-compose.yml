@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/maildb
+      - SECRET_KEY=your-secret-key-here
+      - CORS_ORIGINS=http://localhost:3000
+      - SMTP_HOST=host.docker.internal
+      - SMTP_PORT=25
+      - SMTP_USERNAME=
+      - SMTP_PASSWORD=
+      - SMTP_TLS=false
+      - SMTP_SSL=false
+      - FROM_EMAIL=noreply@localhost
+      - FROM_NAME=Mail Service
+    depends_on:
+      - db
+    volumes:
+      - ./backend:/app
+      - chat_uploads:/app/chat_uploads
+    networks:
+      - app-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - REACT_APP_API_URL=http://localhost:8000
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=maildb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  chat_uploads:

@@ -1,0 +1,590 @@
+import React, { useState, useEffect } from 'react';
+import './EmployeeDashboard.css';
+import { FaEdit, FaTrashAlt, FaSave, FaPlusCircle } from 'react-icons/fa';
+
+function EmployeeDashboard() {
+    const [employeeData, setEmployeeData] = useState([]);
+    const [totalClientAmount, setTotalClientAmount] = useState(0);
+    const [showPopup, setShowPopup] = useState(false);
+    const [popupMessage, setPopupMessage] = useState('');
+    const [popupType, setPopupType] = useState('');
+    const [showLogoutPopup, setShowLogoutPopup] = useState(false);
+    const [isSaveEnabled, setIsSaveEnabled] = useState(false);
+    const [year, setYear] = useState(new Date().getFullYear());
+    const [month, setMonth] = useState(new Date().getMonth() + 1); // 0-based month
+    const [isLoading, setIsLoading] = useState(false);
+    const [calculations, setCalculations] = useState({gst: 0,tds: 0,amountToBeReceived: 0});
+    const [confirmDeleteIndex, setConfirmDeleteIndex] = useState(null);
+    const [showConfirmDeletePopup, setShowConfirmDeletePopup] = useState(false);
+    const [scrollOnAddRow, setScrollOnAddRow] = useState(false); // Track if scroll should happen on adding a row
+
+    
+    useEffect(() => {
+        if (scrollOnAddRow) {
+            const lastRow = document.querySelector('tbody tr:last-child');
+            if (lastRow) {
+                lastRow.scrollIntoView({ behavior: 'smooth' });
+            }
+            setScrollOnAddRow(false); // Reset after scroll
+        }
+    }, [employeeData, scrollOnAddRow]); // Scroll when employeeData is updated and scrollOnAddRow is true
+
+    
+    useEffect(() => {
+        console.log('isLoading:', isLoading);
+    }, [isLoading]);
+    
+    
+    // Correct the useEffect dependencies to use `year` and `month` from the state
+    useEffect(() => {
+        const fetchEmployeeData = async () => {
+            // Clear previous data before fetching new data
+           
+
+            setIsLoading(true); // Start loading
+    console.log('Loading started');  // Log to confirm loading state
+
+            setEmployeeData([]);  // Clear the employee data
+            setTotalClientAmount(0);  // Reset total client amount
+            setCalculations({}); // Clear previous calculations
+    
+            const token = sessionStorage.getItem('token');
+            if (!token) {
+                setIsLoading(false); // Stop loading if no token
+                console.log('No token, loading stopped');
+                showPopupMessage('You must be logged in to view this data.', 'error');
+                return;
+            }
+    
+            try {
+                await new Promise(resolve => setTimeout(resolve, 400)); // Add delay
+                
+                // Fetch data for the selected month and year
+                const response = await fetch(`http://localhost:8080/api/employees/by-month?year=${year}&month=${month}`, {
+                    method: 'GET',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                });
+    
+                if (response.ok) {
+                    const data = await response.json();
+                    
+    
+                    if (data.employees && data.employees.length > 0) {
+                        // If employees data is found, display it
+                        setEmployeeData(data.employees);
+                        setTotalClientAmount(data.Sumcltotal || 0);
+                        setCalculations({
+                            gst: parseFloat((data.GST || 0).toFixed(2)),
+                            tds: parseFloat((data.TDS || 0).toFixed(2)),
+                            amountToBeReceived: parseFloat((data.AmountToBeReceived || 0).toFixed(2)),
+                        });
+                    } else {
+                        // If no employees are found for the selected month, show empty table
+                        setEmployeeData([]);  // Ensure the table is empty
+                        setTotalClientAmount(0); // Reset client amount to 0
+                        setCalculations({});  // Reset calculations
+                        showPopupMessage('No employees found for this month and year.', 'info');
+                    }
+                } else if (response.status === 401) {
+                    showPopupMessage('Your token has expired. Please log in again.', 'error');
+                } else if (response.status === 404) {
+                    showPopupMessage('No employees found for this month and year.', 'info');
+                } else {
+                    showPopupMessage('Failed to load employee data.', 'error');
+                }
+            } catch (error) {
+                console.error(error);
+                showPopupMessage('An error occurred while fetching data.', 'error');
+            } finally {
+                setIsLoading(false); // Stop loading after fetch
+                console.log('Loading stopped');  // Log to confirm loading state
+            }
+        };
+    
+        fetchEmployeeData();
+    }, [year, month]); // Re-fetch when either year or month changes
+    
+    
+    const showPopupMessage = (message, type) => {
+        setPopupMessage(message);
+        setPopupType(type);
+        setShowPopup(true);
+        setTimeout(() => {
+            setShowPopup(false);
+        }, 3000);
+    };
+    
+
+    const handleMonthChange = async (event) => {
+       
+        setEmployeeData([]); // Clear current data immediately
+        setMonth(parseInt(event.target.value)); // Update `month` state
+        
+    };
+    
+    const handleYearChange = async (event) => {
+        
+        setEmployeeData([]); // Clear current data immediately
+        setYear(parseInt(event.target.value)); // Update `year` state
+        
+    };
+    
+    const handleAddRow = () => {
+        const maxSlno = employeeData.reduce((max, emp) => Math.max(max, emp.slno || 0), 0);
+        const newSlno = maxSlno + 1;
+
+        const newRow = {
+            slno: newSlno,
+            cname: '',
+            skills: '',
+            noWorkingDays: 0,
+            noWorkedDays: 0,
+            clcard: 0,
+            cltotal:0,
+            isEditable: true
+        };
+
+        setEmployeeData([...employeeData, newRow]);
+        setIsSaveEnabled(true);
+        setScrollOnAddRow(true); // Set to true to trigger scroll
+    };
+
+    const handleInputChange = (index, field, value) => {
+        const updatedData = employeeData.map((emp, idx) => {
+            if (idx === index && emp.isEditable) {
+                const updatedRow = { ...emp };
+    
+                if (field === 'cname') {
+                    const regex = /^[A-Za-z\s]*$/; // Only letters and spaces
+                    if (!regex.test(value)) {
+                        showPopupMessage(`${field === 'cname' ? 'Candidate Name' : 'Skills'} can only contain letters and spaces.`, 'error');
+                        return updatedRow;
+                    }
+                    updatedRow[field] = value;
+
+                 } else if (field === 'skills') {
+                        // Allow special characters for skills (no validation needed)
+                        updatedRow[field] = value;
+                    } else if (field === 'wds') {
+                        // Handle worked days (wds) field
+                        if (value === '') {
+                            updatedRow[field] = ''; // Allow clearing the field
+                        } else if (/^\d*\.?\d+$/.test(value)) { 
+                            // Accept decimal numbers as well (e.g., 5.5, 0.25, 10.0)
+                            updatedRow[field] = parseFloat(value); // Use parseFloat for decimals
+                        } else {
+                            showPopupMessage('Worked Days (wds) must be a positive number or 0.', 'error');
+                        }
+                    
+                } else {
+                    updatedRow[field] = parseFloat(value) || 0;
+                }
+    
+                // Recalculate the total client amount when `wds`, `nwds`, or `clcard` is updated
+                if (field === 'wds' || field === 'nwds' || field === 'clcard') {
+                    if (updatedRow.nwds >= 0) {
+                        updatedRow.cltotal = (updatedRow.wds / updatedRow.nwds) * updatedRow.clcard;
+                    } else {
+                        updatedRow.cltotal = 0; // Handle division by zero
+                    }
+                }
+    
+                return updatedRow;
+            }
+            return emp;
+        });
+    
+        setEmployeeData(updatedData);
+    
+        const totalClientAmount = updatedData.reduce((sum, emp) => sum + (emp.cltotal || 0), 0);
+        setTotalClientAmount(totalClientAmount);
+
+        // Recalculate totals (GST, TDS, Amount to be Received) in the frontend
+        const gst = parseFloat((totalClientAmount * 0.18).toFixed(2));  // Assuming 18% GST
+        const tds = parseFloat((totalClientAmount * 0.10).toFixed(2));  // Assuming 10% TDS
+        const amountToBeReceived = parseFloat((totalClientAmount + gst - tds).toFixed(2));
+
+        setCalculations({
+            gst,
+            tds,
+            amountToBeReceived,
+        });
+        
+    };
+    
+
+    const handleDeleteRow = (index) => {
+        // Show confirmation popup instead of deleting immediately
+        setConfirmDeleteIndex(index);
+        setShowConfirmDeletePopup(true);
+    };
+
+    const handleConfirmDelete = async (isConfirmed) => {
+        if (isConfirmed && confirmDeleteIndex !== null) {
+            const emp = employeeData[confirmDeleteIndex];
+            const token = sessionStorage.getItem('token');
+            
+            if (!token) {
+                showPopupMessage('Please log in to delete data.', 'error');
+                return;
+            }
+    
+            try {
+                const response = await fetch(`http://localhost:8080/api/delete/${emp.slno}?year=${year}&month=${month}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+    
+                if (response.ok) {
+                    const updatedData = employeeData.filter((_, idx) => idx !== confirmDeleteIndex)
+                        .map((emp, idx) => ({ ...emp, slno: idx + 1 }));
+    
+                    setEmployeeData(updatedData);
+                    setIsSaveEnabled(true);
+    
+                    const totalClientAmount = updatedData.reduce((sum, emp) => sum + (emp.cltotal || 0), 0);
+                    setTotalClientAmount(totalClientAmount);
+    
+                    const gst = parseFloat((totalClientAmount * 0.18).toFixed(2));  // Assuming 18% GST
+                    const tds = parseFloat((totalClientAmount * 0.10).toFixed(2));  // Assuming 10% TDS
+                    const amountToBeReceived = parseFloat((totalClientAmount + gst - tds).toFixed(2));
+    
+                    setCalculations({
+                        gst,
+                        tds,
+                        amountToBeReceived,
+                    });
+    
+                    showPopupMessage('Data deleted successfully.', 'success');
+                } else {
+                    showPopupMessage('Failed to delete data.', 'error');
+                }
+            } catch (error) {
+                showPopupMessage('An error occurred while deleting data.', 'error');
+            }
+        }
+    
+        // Hide the confirmation popup in both cases
+        setShowConfirmDeletePopup(false);
+        setConfirmDeleteIndex(null);
+    };
+    
+   
+
+    const handleEditRow = (index) => {
+        const updatedData = employeeData.map((emp, idx) => ({
+            ...emp,
+            isEditable: idx === index ? !emp.isEditable : emp.isEditable
+        }));
+
+        setEmployeeData(updatedData);
+        setIsSaveEnabled(true);
+    };
+    
+
+    const saveAllToDatabase = async () => {
+        const token = sessionStorage.getItem('token');
+        if (!token) {
+            showPopupMessage('You must be logged in to save data.', 'error');
+            return;
+        }
+    
+        // Validate employee data
+        for (const emp of employeeData) {
+            if (!emp.slno || !emp.cname || !emp.skills || emp.nwds<=0 || emp.wds<0 || emp.clcard <=0|| !year || !month) {
+                showPopupMessage('All fields are required. Please ensure no fields are empty.', 'error');
+                return;
+            }
+        }
+    
+        try {
+            const payload = employeeData.map((emp) => ({
+                ...emp,
+                year: year,
+                month: month,
+            }));
+    
+            const response = await fetch('http://localhost:8080/api/add', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify(payload),
+            });
+    
+            if (response.ok) {
+                showPopupMessage('All data saved successfully!', 'success');
+                setEmployeeData(employeeData.map((emp) => ({ ...emp, isEditable: false })));
+                setIsSaveEnabled(false);
+                
+            } else {
+                const result = await response.json();
+                showPopupMessage(result.error || 'Failed to save data.', 'error');
+            }
+        } catch (error) {
+            showPopupMessage('An error occurred while saving data.', 'error');
+        }
+        
+    };
+    
+    
+    
+    const handleExit = async () => {
+        if (isSaveEnabled) {
+            await saveAllToDatabase(); // Auto-save before exiting
+        }
+        sessionStorage.clear();
+        showPopupMessage('Logged out successfully.', 'success');
+        setTimeout(() => {
+            window.location.href = '/'; // Redirect to login page
+        }, 1500);
+    };
+
+    const saveToDatabase = async (index) => {
+        try {
+            let emp = employeeData[index];
+    
+            // Add year and month to the employee data
+            emp = {
+                ...emp,
+                year: year,
+                month: month,
+            };
+    
+            // Validate that necessary fields are filled before saving
+            if (!emp.cname || emp.clcard <= 0 || emp.nwds <= 0 || emp.wds < 0 || emp.cltotal <0) {
+                showPopupMessage('Please fill in all required fields correctly.', 'error');
+                return;
+            }
+    
+            const token = sessionStorage.getItem('token');
+            const response = await fetch(`http://localhost:8080/api/add`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                // Wrap the employee object in an array
+                body: JSON.stringify([emp]),
+            });
+    
+            if (response.ok) {
+                const updatedData = [...employeeData];
+                updatedData[index].isEditable = false;
+                setEmployeeData(updatedData);
+                setIsSaveEnabled(true);
+                showPopupMessage('Data saved successfully!', 'success');
+            } else {
+                showPopupMessage('Failed to save data.', 'error');
+            }
+        } catch (error) {
+            showPopupMessage('An error occurred while saving data.', 'error');
+        }
+    };
+    
+
+    const handleLogoutClick = () => {
+        setShowLogoutPopup(true);
+    };
+
+    const handleBack = () => {
+        setShowLogoutPopup(false);
+    };
+
+    return (
+        <>
+            <h2>Source Exe Technology-Employee Dashboard</h2>
+            {showLogoutPopup && (
+                <div className="logout-popup">
+                    <div className="popup-content">
+                        <p>Are you sure you want to exit?</p>
+                        <div>
+                            <button onClick={handleExit}>Exit</button>
+                            <button onClick={handleBack}>Back</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showConfirmDeletePopup && (
+    <div className="confirm-delete-popup">
+        <div className="popup-content">
+            <p>Are you sure you want to delete this record?</p>
+            <div>
+                <button onClick={() => handleConfirmDelete(true)}>Yes</button>
+                <button onClick={() => handleConfirmDelete(false)}>No</button>
+            </div>
+        </div>
+    </div>
+)}
+
+
+            {showPopup && (
+                <div className={`popup-message ${popupType}`}>
+                    <span className="popup-icon">
+                        {popupType === 'success' ? '✔️' : '❌'}
+                    </span>
+                    <span className="popup-text">{popupMessage}</span>
+                </div>
+            )}
+
+{/* Year and Month Selection */}
+            <div className="filter-container">
+            <select onChange={handleYearChange} value={year}>
+        {Array.from({ length: 10 }, (_, i) => 2024 + i).map((yearOption) => (
+            <option key={yearOption} value={yearOption}>
+                {yearOption}
+            </option>
+        ))}
+    </select>
+    <select onChange={handleMonthChange} value={month}>
+        {[...Array(12).keys()].map((m) => (
+            <option key={m} value={m + 1}>
+                {new Date(0, m).toLocaleString('en', { month: 'long' })}
+            </option>
+        ))}
+    </select>
+</div>
+ <table className="employee-table">
+    
+                <thead>
+                    <tr>
+                        <th>Serial No</th>
+                        <th>Candidate Name</th>
+                        <th>Skills</th>
+                        <th>Rate Card</th>
+                        <th>No. of Working Days</th>
+                        <th>No. of Worked Days</th>
+                        <th>Client Total</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {isLoading ? (
+                        <tr>
+                            <td colSpan="8" style={{ textAlign: 'center' }}>Loading...</td>
+                        </tr>
+                
+                ):employeeData.length === 0 ? (
+        <tr>
+            <td colSpan="8" style={{ textAlign: 'center' }}>No data available for the selected month and year.</td>
+        </tr>
+    ) : (
+        employeeData.map((emp, idx) => (
+            <tr key={emp.slno}>
+                <td>{emp.slno}</td>
+                <td>
+                    <input
+                        type="text"
+                        value={emp.cname}
+                        title={emp.cname}
+                        onChange={(e) => handleInputChange(idx, 'cname', e.target.value)}
+                        disabled={!emp.isEditable}
+                    />
+                </td>
+                <td>
+                    <input
+                        type="text"
+                        value={emp.skills}
+                        title={emp.skills}
+                        onChange={(e) => handleInputChange(idx, 'skills', e.target.value)}
+                        disabled={!emp.isEditable}
+                    />
+                </td>
+                <td>
+                    <input
+                        type="number"
+                        value={emp.clcard || ''}
+                        title={emp.clcard}
+                        onChange={(e) => handleInputChange(idx, 'clcard', e.target.value)}
+                        disabled={!emp.isEditable}
+                    />
+                </td>
+                <td>
+                    <input
+                        type="number"
+                        value={emp.nwds || ''}
+                        onChange={(e) => handleInputChange(idx, 'nwds', e.target.value)}
+                        disabled={!emp.isEditable}
+                    />
+                </td>
+                <td>
+                    <input
+                        type="number"
+                        value={emp.wds !== undefined && emp.wds !== null ? emp.wds : ''} 
+                        onChange={(e) => handleInputChange(idx, 'wds', e.target.value)}
+                        disabled={!emp.isEditable}
+                    />
+                </td>
+                <td>{emp.cltotal?.toFixed(2)}</td>
+
+                <td>
+                    {emp.isEditable ? (
+                        <FaSave className="icon save-icon" onClick={() => saveToDatabase(idx)} />
+                    ) : (
+                        <FaEdit className="icon edit-icon" onClick={() => handleEditRow(idx)} />
+                    )}
+                    <FaTrashAlt className="icon delete-icon" onClick={() => handleDeleteRow(idx)} />
+                        
+                </td>
+            </tr>
+        ))
+    )}
+    
+    </tbody>
+
+    <tfoot>
+         <tr>
+        <td colSpan="6" style={{ textAlign: 'right', fontWeight: 'bold' }}>Client Total:</td>
+        <td>{totalClientAmount.toFixed(2)}</td>
+        <td>
+        <FaPlusCircle
+                className="add-row-btn"
+                onClick={handleAddRow}
+                title="Add Row"
+                style={{ cursor: 'pointer', color: '#007bff', fontSize: '1.5rem' }}
+            />
+        </td>
+    </tr>
+    </tfoot>
+</table>
+
+            
+<div className="button-container">
+    <div className="calculations">
+        <div className="calculation-item gst">
+        <p>GST</p>
+        <strong>{calculations?.gst?.toFixed(2)}</strong>
+        </div>
+        <div className="calculation-item tds">
+        <p>TDS</p>
+        <strong>{calculations?.tds?.toFixed(2)}</strong>
+        </div>
+        <div className="calculation-item amount-to-receive">
+        <p>Amount to be Received</p>
+        <strong>{calculations?.amountToBeReceived?.toFixed(2)}</strong>
+        </div>
+    </div>
+    <div style={{ display: "flex", gap: "15px" }}>
+    <button className="save-btn" onClick={saveAllToDatabase} disabled={!isSaveEnabled}>Save</button>
+    <button className="logout-btn" onClick={handleLogoutClick}>Logout</button>
+    </div>
+</div> 
+            
+        </>
+    );
+}
+
+export default EmployeeDashboard;
+
+
+
+
+calculations
+
+client total=no. of worked days/no.of working days* rate card value
+gst=sum of client total*18/100
+tds= client total/10
+amount to be recieved=gst+sum of client total-tds
